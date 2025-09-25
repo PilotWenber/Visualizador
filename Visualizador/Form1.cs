@@ -12,9 +12,12 @@ namespace Visualizador
     {
         // Variables globales
         private string rutaArchivoImportado = string.Empty;
+        private string ultimaRutaAbrir = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        private string ultimaRutaGuardar = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        private string ultimaRutaExportar = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+
         public Form1()
-        {
-            this.KeyPreview = true; // Permite capturar eventos de teclado en el formulario
+        {            
             InitializeComponent();
 
             // Configuración inicial del DataGridView
@@ -23,6 +26,18 @@ namespace Visualizador
             // Conectar eventos extra
             dgvLineas.SelectionChanged += DgvLineas_SelectionChanged;
             txtTraduccion.KeyDown += TxtTraduccion_KeyDown;
+
+            this.KeyPreview = true; // Permite capturar eventos de teclado en el formulario
+
+            this.Font = new Font("Segoe UI", 11F, FontStyle.Regular, GraphicsUnit.Point);
+
+            txtOriginal.Multiline = true;
+            txtOriginal.ScrollBars = ScrollBars.Vertical;
+            txtOriginal.Font = new Font("Segoe UI", 11F);
+
+            txtTraduccion.Multiline = true;
+            txtTraduccion.ScrollBars = ScrollBars.Vertical;
+            txtTraduccion.Font = new Font("Segoe UI", 11F);
         }
 
         // =============================
@@ -30,6 +45,8 @@ namespace Visualizador
         // =============================
         private void ConfigurarDataGridView()
         {
+            dgvLineas.DefaultCellStyle.Font = new Font("Segoe UI", 11F);
+            dgvLineas.ColumnHeadersDefaultCellStyle.Font = new Font("Segoe UI", 11F, FontStyle.Bold);
             dgvLineas.AllowUserToAddRows = false;
             dgvLineas.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
             dgvLineas.MultiSelect = false;
@@ -83,17 +100,15 @@ namespace Visualizador
         private void CargarArchivo(string ruta)
         {
             dgvLineas.Rows.Clear();
-
             var lineas = File.ReadAllLines(ruta);
-            var parseRegex = new Regex(@"^(\s*)([^:]+)\s*:\s*""([^""]*)""(?:\s*<\s*""([^""]*)""\s*>)?(.*)$");
 
             for (int i = 0; i < lineas.Length; i++)
             {
-                string lineaFull = lineas[i]; // SIN Trim, queremos preservar indentación y formato
-                string linea = lineaFull.Trim();
+                 string lineaFull = lineas[i]; // mantengo la línea exacta
+                string lineaTrim = lineaFull.Trim();
 
-                // Saltar primera línea y comentarios y líneas vacías
-                if (i == 0 || linea.StartsWith("#") || string.IsNullOrWhiteSpace(linea))
+                // Saltar primera línea y comentarios
+                if (i == 0 || lineaTrim.StartsWith("#") || string.IsNullOrWhiteSpace(lineaTrim))
                     continue;
 
                 string nombre = "";
@@ -102,54 +117,51 @@ namespace Visualizador
 
                 try
                 {
-                    var m = parseRegex.Match(lineaFull);
-                    if (m.Success)
+                    // Buscar el separador de key
+                    int idxSeparador = lineaFull.IndexOf(':');
+                    if (idxSeparador != -1)
+                        nombre = lineaFull.Substring(0, idxSeparador).Trim();
+
+                    // Buscar original → primera comilla después de ':'
+                    int idxComilla1 = lineaFull.IndexOf('"', idxSeparador);
+                    if (idxComilla1 != -1)
                     {
-                        // m.Groups:
-                        // 1 -> leading spaces (si querés usarlos)
-                        // 2 -> nombre (key)
-                        // 3 -> original (entre comillas)
-                        // 4 -> traduccion (opcional)
-                        // 5 -> resto de la línea (comentarios, etc)
-                        nombre = m.Groups[2].Value.Trim();
-                        original = m.Groups[3].Value;
-                        traduccion = m.Groups[4].Success ? m.Groups[4].Value : "";
+                        // Si hay traducción, busco la última comilla ANTES del '<'
+                        int idxMenor = lineaFull.IndexOf('<', idxComilla1);
+                        int idxComilla2;
+
+                        if (idxMenor != -1)
+                        {
+                            idxComilla2 = lineaFull.LastIndexOf('"', idxMenor);
+                        }
+                        else
+                        {
+                            // No hay traducción → busco la última comilla de la línea
+                            idxComilla2 = lineaFull.LastIndexOf('"');
+                        }
+
+                        if (idxComilla2 > idxComilla1)
+                            original = lineaFull.Substring(idxComilla1 + 1, idxComilla2 - idxComilla1 - 1);
                     }
-                    else
+
+                    // Buscar traducción dentro de < >
+                    int idxMenorT = lineaFull.IndexOf('<');
+                    int idxMayorT = lineaFull.LastIndexOf('>');
+                    if (idxMenorT != -1 && idxMayorT > idxMenorT)
                     {
-                        // Fallback: intentar extraer nombre con ":" y la primera comilla
-                        int idxSeparador = lineaFull.IndexOf(':');
-                        if (idxSeparador != -1)
-                            nombre = lineaFull.Substring(0, idxSeparador).Trim();
-
-                        int idxComilla1 = lineaFull.IndexOf('"');
-                        if (idxComilla1 != -1)
-                        {
-                            int idxComilla2 = lineaFull.IndexOf('"', idxComilla1 + 1);
-                            if (idxComilla2 != -1)
-                                original = lineaFull.Substring(idxComilla1 + 1, idxComilla2 - idxComilla1 - 1);
-                        }
-
-                        int idxMenor = lineaFull.IndexOf('<');
-                        int idxMayor = lineaFull.IndexOf('>');
-                        if (idxMenor != -1 && idxMayor != -1)
-                        {
-                            int idxComillaT1 = lineaFull.IndexOf('"', idxMenor);
-                            int idxComillaT2 = lineaFull.LastIndexOf('"', idxMayor);
-                            if (idxComillaT1 != -1 && idxComillaT2 != -1 && idxComillaT2 > idxComillaT1)
-                                traduccion = lineaFull.Substring(idxComillaT1 + 1, idxComillaT2 - idxComillaT1 - 1);
-                        }
+                        int idxComillaT1 = lineaFull.IndexOf('"', idxMenorT);
+                        int idxComillaT2 = lineaFull.LastIndexOf('"', idxMayorT);
+                        if (idxComillaT1 != -1 && idxComillaT2 > idxComillaT1)
+                            traduccion = lineaFull.Substring(idxComillaT1 + 1, idxComillaT2 - idxComillaT1 - 1);
                     }
                 }
                 catch
                 {
-                    // en caso de error, dejamos campos vacíos pero guardamos raw
+                    // fallback: dejar los campos vacíos si falla
                 }
 
-                // Agregamos fila: NumeroLinea = i+1 para mantener mapeo con archivo original
-                int rowIndex = dgvLineas.Rows.Add(i + 1, nombre, original ?? "", traduccion ?? "");
-                // Guardamos la línea raw completa para usarla al exportar y así conservar indentación/trailing comments
-                dgvLineas.Rows[rowIndex].Cells["colRaw"].Value = lineaFull;
+                int rowIndex = dgvLineas.Rows.Add(i + 1, nombre, original, traduccion);
+                dgvLineas.Rows[rowIndex].Cells["colRaw"].Value = lineaFull; // guardo la raw para exportar
             }
         }
 
@@ -222,11 +234,21 @@ namespace Visualizador
         // =============================
         private void menuGuardar_Click(object sender, EventArgs e)
         {
+            if (string.IsNullOrEmpty(rutaArchivoImportado))
+            {
+                MessageBox.Show("Primero debes importar un archivo.");
+                return;
+            }
+
             SaveFileDialog sfd = new SaveFileDialog();
             sfd.Filter = "Archivo de progreso (*.json)|*.json";
+            sfd.InitialDirectory = ultimaRutaGuardar;
+            sfd.FileName = Path.GetFileNameWithoutExtension(rutaArchivoImportado) + ".json";
 
             if (sfd.ShowDialog() == DialogResult.OK)
             {
+                ultimaRutaGuardar = Path.GetDirectoryName(sfd.FileName);
+
                 ProgresoData progreso = new ProgresoData
                 {
                     ArchivoOriginal = rutaArchivoImportado,
@@ -271,17 +293,16 @@ namespace Visualizador
 
             SaveFileDialog sfd = new SaveFileDialog();
             sfd.Filter = "Archivos YML (*.yml)|*.yml";
-            sfd.FileName = Path.GetFileName(rutaArchivoImportado); // mismo nombre que el importado
+            sfd.FileName = Path.GetFileName(rutaArchivoImportado);
+            sfd.InitialDirectory = ultimaRutaExportar;
 
             if (sfd.ShowDialog() == DialogResult.OK)
             {
                 string destino = sfd.FileName;
+                ultimaRutaExportar = Path.GetDirectoryName(destino);
+
                 var lineasOriginales = File.ReadAllLines(rutaArchivoImportado);
                 List<string> nuevasLineas = new List<string>();
-
-                // Regex para reemplazar la parte de "original" y el <"..."> opcional,
-                // manteniendo la indentación y el resto de la línea (comentarios).
-                var replaceRegex = new Regex(@"^(\s*[^:]+:\s*)""[^""]*""(?:\s*<\s*""[^""]*""\s*>)?(.*)$");
 
                 for (int i = 0; i < lineasOriginales.Length; i++)
                 {
@@ -294,7 +315,7 @@ namespace Visualizador
                         continue;
                     }
 
-                    // Buscar fila correspondiente (por número de línea)
+                    // Buscar fila correspondiente
                     DataGridViewRow fila = null;
                     foreach (DataGridViewRow f in dgvLineas.Rows)
                     {
@@ -308,7 +329,6 @@ namespace Visualizador
 
                     if (fila == null)
                     {
-                        // No está en la grilla → dejamos la línea original íntegra
                         nuevasLineas.Add(lineaFull);
                         continue;
                     }
@@ -316,42 +336,26 @@ namespace Visualizador
                     bool confirmada = fila.DefaultCellStyle.BackColor == Color.LightGreen;
                     string traduccion = fila.Cells["colTraduccion"].Value?.ToString() ?? "";
                     string original = fila.Cells["colOriginal"].Value?.ToString() ?? "";
+                    string nombre = fila.Cells["colNombre"].Value?.ToString() ?? "";
 
                     if (confirmada)
                     {
+                        string indent = "";
+                        int idxFirstChar = lineaFull.IndexOf(lineaFull.TrimStart());
+                        if (idxFirstChar >= 0)
+                            indent = lineaFull.Substring(0, idxFirstChar);
+
                         if (!string.IsNullOrEmpty(traduccion))
                         {
-                            // Reemplazamos el texto entre comillas y borramos la sección <"...">, preservando indentación y resto
-                            var m = replaceRegex.Match(lineaFull);
-                            if (m.Success)
-                            {
-                                string left = m.Groups[1].Value; // incluye indentación y "key: "
-                                string tail = m.Groups[2].Value; // resto (comentarios, espacios)
-                                string nuevaLinea = $"{left}\"{traduccion}\"{tail}";
-                                nuevasLineas.Add(nuevaLinea);
-                            }
-                            else
-                            {
-                                // Fallback: si no hace match por algún motivo, construimos simple manteniendo key básico
-                                string nombre = fila.Cells["colNombre"].Value?.ToString() ?? "";
-                                string indent = "";
-                                // intentar sacar indentación desde la línea original
-                                int idxFirstChar = lineasOriginales[i].IndexOf(lineasOriginales[i].TrimStart());
-                                if (idxFirstChar >= 0)
-                                    indent = lineasOriginales[i].Substring(0, idxFirstChar);
-                                nuevasLineas.Add($"{indent}{nombre}: \"{traduccion}\"");
-                            }
+                            nuevasLineas.Add($"{indent}{nombre}: \"{traduccion}\"");
                         }
                         else
                         {
-                            // Confirmada pero traducción vacía → eliminar la parte <"..."> dejando el original intacto
-                            string sinAngle = Regex.Replace(lineaFull, @"\s*<\s*""[^""]*""\s*>", "");
-                            nuevasLineas.Add(sinAngle);
+                            nuevasLineas.Add($"{indent}{nombre}: \"{original}\"");
                         }
                     }
                     else
                     {
-                        // No confirmada → dejar tal cual
                         nuevasLineas.Add(lineaFull);
                     }
                 }
@@ -365,9 +369,14 @@ namespace Visualizador
         {
             OpenFileDialog ofd = new OpenFileDialog();
             ofd.Filter = "Archivo de progreso (*.json)|*.json";
+            ofd.InitialDirectory = ultimaRutaAbrir;
 
             if (ofd.ShowDialog() == DialogResult.OK)
             {
+                rutaArchivoImportado = ofd.FileName;
+                ultimaRutaAbrir = Path.GetDirectoryName(rutaArchivoImportado);
+                lblNombreArchivo.Text = Path.GetFileName(rutaArchivoImportado);
+                CargarArchivo(rutaArchivoImportado);
                 string json = File.ReadAllText(ofd.FileName);
                 ProgresoData progreso = JsonConvert.DeserializeObject<ProgresoData>(json);
 
